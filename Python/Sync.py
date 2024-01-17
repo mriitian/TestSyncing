@@ -1,114 +1,103 @@
-// Define constants
-const DATA_KEYS = ["a", "b", "c"];
-// Device class
-class Device {
-    constructor(id) {
-        this._id = id;
-        this.records = [];
-        this.sent = [];
-    }
-    obtainData() {
-        if (Math.random() < 0.4) {
-            return {};
-        }
-        const record = {
-            type: 'record',
-            timestamp: new Date().toISOString(),
-            dev_id: this._id,
-            data: DATA_KEYS.reduce((acc, key) => {
-                acc[key] = uuid.v4();
-                return acc;
-            }, {})
-        };
-        this.sent.push(record);
-        return record;
-    }
-    probe() {
-        if (Math.random() < 0.5) {
-            return {};
-        }
-        return {
-            type: 'probe',
-            dev_id: this._id,
-            from: this.records.length
-        };
-    }
-    onMessage(data) {
-        console.log(`Device ID: ${this._id}, Message Received:`, data);
-        if (!data || Math.random() < 0.6) {
-            // Check if data is undefined or randomly skip processing
-            return;
-        }
-        if (data.type === 'update') {
-            console.log('Handling update message:', data);
-            const from = data.from;
-            if (from > this.records.length) {
-                return;
-            }
-            this.records = this.records.slice(0, from).concat(data.data);
-        }
-    }
-}
-// SyncService class
-class SyncService {
-    constructor() {
-        this.serverRecords = [];
-    }
-    onMessage(data) {
-        if (data.type === 'probe') {
-            const from = data.from;
-            const updateData = {
-                type: 'update',
-                from: from,
-                data: this.serverRecords.slice(from)
-            };
-            return updateData;
-        }
-        // No return value required for handling 'record' type
-    }
-}
-// Test function
-function testSyncing() {
-    console.log("Starting testSyncing");
-    const devices = Array.from({ length: 10 }, (_, i) => new Device(`dev_${i}`));
-    const syn = new SyncService();
-    const N = 1000;
-    for (let i = 0; i < N; i++) {
-        console.log(`Iteration: ${i + 1}`);
-        for (const dev of devices) {
-            console.log(`Device ID: ${dev._id}`);
-            syn.onMessage(dev.obtainData());
-            dev.onMessage(syn.onMessage(dev.probe()));
-        }
-    }
-    let done = false;
-    while (!done) {
-        for (const dev of devices) dev.onMessage(syn.onMessage(dev.probe()));
-        const num_recs = devices[0].records.length;
-        done = devices.every((_dev) => _dev.records.length === num_recs);
-    }
-    const ver_start = Array(devices.length).fill(0);
-    for (let i = 0; i < devices[0].records.length; i++) {
-        const rec = devices[0].records[i];
-        const devIdx = parseInt(rec.dev_id.split("_").pop());
-        assertEquivalent(rec, devices[devIdx].sent[ver_start[devIdx]]);
-        for (const _dev of devices.slice(1)) {
-            assertEquivalent(rec, _dev.records[i]);
-        }
-        ver_start[devIdx] += 1;
-    }
-}
-function assertEquivalent(d1, d2) {
-    if (d1.dev_id !== d2.dev_id || d1.timestamp !== d2.timestamp) {
-        throw new Error("Assertion failed: Records are not equivalent");
-    }
-    for (const key of DATA_KEYS) {
-        if (d1.data[key] !== d2.data[key]) {
-            throw new Error("Assertion failed: Records are not equivalent");
-        }
-    }
-}
-// Execute the test
-testSyncing();
+import random
+import datetime
+import uuid
+
+_DATA_KEYS = ["a", "b", "c"]
 
 
+class Device:
+    def __init__(self, id):
+        self._id = id
+        self.records = []
+        self.sent = []
+
+    def obtainData(self) -> dict:
+        """Returns a single new datapoint from the device.
+        Identified by type `record`. `timestamp` records when the record was sent and `dev_id` is the device id.
+        `data` is the data collected by the device."""
+        if random.random() < 0.4:
+            # Sometimes there's no new data
+            return {}
+
+        rec = {
+            'type': 'record', 'timestamp': datetime.datetime.now().isoformat(), 'dev_id': self._id,
+            'data': {kee: str(uuid.uuid4()) for kee in _DATA_KEYS}
+        }
+        self.sent.append(rec)
+        return rec
+
+    def probe(self) -> dict:
+        """Returns a probe request to be sent to the SyncService.
+        Identified by type `probe`. `from` is the index number from which the device is asking for the data."""
+        if random.random() < 0.5:
+            # Sometimes the device forgets to probe the SyncService
+            return {}
+
+        return {'type': 'probe', 'dev_id': self._id, 'from': len(self.records)}
+
+    def onMessage(self, data: dict):
+        """Receives updates from the server"""
+        if random.random() < 0.6:
+            # Sometimes devices make mistakes. Let's hope the SyncService handles such failures.
+            return
+
+        if data['type'] == 'update':
+            _from = data['from']
+            if _from > len(self.records):
+                return
+            self.records = self.records[:_from] + data['data']
+
+
+class SyncService:
+    def __init__(self):
+        self.data_aggregated = []
+
+    def onMessage(self, data: dict):
+        if data['type'] == 'probe':
+            # Handle probe requests
+            from_index = data['from']
+            response_data = self.data_aggregated[from_index:]
+            return {'type': 'update', 'from': from_index, 'data': response_data}
+        elif data['type'] == 'record':
+            # Handle record updates
+            # No need to return anything for record updates
+            pass
+        else:
+            raise ValueError(f"Unsupported message type: {data['type']}")
+
+
+def testSyncing():
+    devices = [Device(f"dev_{i}") for i in range(10)]
+    syn = SyncService()
+
+    _N = int(1e6)
+    for i in range(_N):
+        for _dev in devices:
+            syn.onMessage(_dev.obtainData())
+            _dev.onMessage(syn.onMessage(_dev.probe()))
+
+    done = False
+    while not done:
+        for _dev in devices:
+            _dev.onMessage(syn.onMessage(_dev.probe()))
+        num_recs = len(devices[0].records)
+        done = all([len(_dev.records) == num_recs for _dev in devices])
+
+    ver_start = [0] * len(devices)
+    for i, rec in enumerate(devices[0].records):
+        _dev_idx = int(rec['dev_id'].split("_")[-1])
+        assertEquivalent(rec, devices[_dev_idx].sent[ver_start[_dev_idx]])
+        for _dev in devices[1:]:
+            assertEquivalent(rec, _dev.records[i])
+        ver_start[_dev_idx] += 1
+
+
+def assertEquivalent(d1: dict, d2: dict):
+    assert d1['dev_id'] == d2['dev_id']
+    assert d1['timestamp'] == d2['timestamp']
+    for kee in _DATA_KEYS:
+        assert d1['data'][kee] == d2['data'][kee]
+
+
+if __name__ == "__main__":
+    testSyncing()
