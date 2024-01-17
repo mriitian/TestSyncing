@@ -2,6 +2,8 @@
 # Real-Time Meal Records Sync
 
 This project simulates real-time syncing of meal records across tablets using a server as a mediator. The tablets and server are represented by separate objects in the code.
+I am not that experienced in python so I tried to convert the code to Javascript and Complete it.
+Then converted it back to python.
 
 ## Overview
 
