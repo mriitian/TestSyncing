@@ -25,7 +25,7 @@ Follow the steps below to run the project on your local machine.
 ### Prerequisites
 
 - Node.js installed
-- npm i
+- `npm i`
 
 
 
